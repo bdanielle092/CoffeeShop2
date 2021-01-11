@@ -1,15 +1,17 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using CoffeeShop2.Models;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
-using CoffeeShop2.Models;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace CoffeeShop2.Repositories
 {
-    public class BeanVarietyRepository : IBeanVarietyRepository
+    public class CoffeeRepository : ICoffeeRepository
     {
         private readonly string _connectionString;
-        public BeanVarietyRepository(IConfiguration configuration)
+        public CoffeeRepository(IConfiguration configuration)
         {
             _connectionString = configuration.GetConnectionString("DefaultConnection");
         }
@@ -19,17 +21,65 @@ namespace CoffeeShop2.Repositories
             get { return new SqlConnection(_connectionString); }
         }
 
-        public List<BeanVariety> GetAll()
+        public List<Coffee> GetAll()
         {
             using (var conn = Connection)
             {
                 conn.Open();
                 using (var cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = "SELECT Id, [Name], Region, Notes FROM BeanVariety;";
+                    cmd.CommandText = @"SELECT coffee.Id As CoffeeId, Title, BeanVarietyId, Name, Region, Notes
+                        FROM Coffee 
+                    LEFT JOIN BeanVariety ON coffee.BeanVarietyId = BeanVariety.Id
+                        ";
                     var reader = cmd.ExecuteReader();
-                    var varieties = new List<BeanVariety>();
+                    var coffees = new List<Coffee>();
                     while (reader.Read())
+                    {
+                        var variety = new BeanVariety()
+                        {
+                            Id = reader.GetInt32(reader.GetOrdinal("CoffeeId")),
+                            Name = reader.GetString(reader.GetOrdinal("Name")),
+                            Region = reader.GetString(reader.GetOrdinal("Region")),
+                        };
+                        if (!reader.IsDBNull(reader.GetOrdinal("Notes")))
+                        {
+                            variety.Notes = reader.GetString(reader.GetOrdinal("Notes"));
+                        }
+                        var coffee = new Coffee()
+                        {
+                            Id = reader.GetInt32(reader.GetOrdinal("CoffeeId")),
+                            Title = reader.GetString(reader.GetOrdinal("Title")),
+                            BeanVarietyId = reader.GetInt32(reader.GetOrdinal("BeanVarietyId")),
+                            BeanVariety = variety
+                        };
+                        coffees.Add(coffee);
+                    }
+
+                    reader.Close();
+
+                    return coffees;
+                }
+            }
+        }
+        public Coffee Get(int coffeeId)
+        {
+            using (var conn = Connection)
+            {
+                conn.Open();
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = @"SELECT coffee.Id As CoffeeId, Title, BeanVarietyId, Name, Region, Notes
+                          FROM Coffee
+                        LEFT JOIN BeanVariety ON coffee.BeanVarietyId = BeanVariety.Id
+                         WHERE CoffeeId = @coffeeId
+                          ";
+                    cmd.Parameters.AddWithValue("@coffeeId", coffeeId);
+
+                    var reader = cmd.ExecuteReader();
+
+                    Coffee coffee = null;
+                    if (reader.Read())
                     {
                         var variety = new BeanVariety()
                         {
@@ -41,54 +91,25 @@ namespace CoffeeShop2.Repositories
                         {
                             variety.Notes = reader.GetString(reader.GetOrdinal("Notes"));
                         }
-                        varieties.Add(variety);
-                    }
 
-                    reader.Close();
-
-                    return varieties;
-                }
-            }
-        }
-
-        public BeanVariety Get(int id)
-        {
-            using (var conn = Connection)
-            {
-                conn.Open();
-                using (var cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = @"
-                        SELECT Id, [Name], Region, Notes 
-                          FROM BeanVariety
-                         WHERE Id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
-
-                    var reader = cmd.ExecuteReader();
-
-                    BeanVariety variety = null;
-                    if (reader.Read())
-                    {
-                        variety = new BeanVariety()
+                        coffee = new Coffee()
                         {
                             Id = reader.GetInt32(reader.GetOrdinal("Id")),
-                            Name = reader.GetString(reader.GetOrdinal("Name")),
-                            Region = reader.GetString(reader.GetOrdinal("Region")),
+                            Title = reader.GetString(reader.GetOrdinal("Title")),
+                            BeanVarietyId = reader.GetInt32(reader.GetOrdinal("BeanVarietyId")),
+
+
                         };
-                        if (!reader.IsDBNull(reader.GetOrdinal("Notes")))
-                        {
-                            variety.Notes = reader.GetString(reader.GetOrdinal("Notes"));
-                        }
                     }
 
                     reader.Close();
 
-                    return variety;
+                    return coffee;
                 }
             }
         }
 
-        public void Add(BeanVariety variety)
+        public void Add(Coffee coffee)
         {
             using (var conn = Connection)
             {
@@ -96,26 +117,17 @@ namespace CoffeeShop2.Repositories
                 using (var cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"
-                        INSERT INTO BeanVariety ([Name], Region, Notes)
+                        INSERT INTO Coffee (Title)
                         OUTPUT INSERTED.ID
-                        VALUES (@name, @region, @notes)";
-                    cmd.Parameters.AddWithValue("@name", variety.Name);
-                    cmd.Parameters.AddWithValue("@region", variety.Region);
-                    if (variety.Notes == null)
-                    {
-                        cmd.Parameters.AddWithValue("@notes", DBNull.Value);
-                    }
-                    else
-                    {
-                        cmd.Parameters.AddWithValue("@notes", variety.Notes);
-                    }
+                        VALUES (@Title)";
+                    cmd.Parameters.AddWithValue("@Title", coffee.Title);
 
-                    variety.Id = (int)cmd.ExecuteScalar();
+                    coffee.Id = (int)cmd.ExecuteScalar();
                 }
             }
         }
 
-        public void Update(BeanVariety variety)
+        public void Update(Coffee coffee)
         {
             using (var conn = Connection)
             {
@@ -123,22 +135,12 @@ namespace CoffeeShop2.Repositories
                 using (var cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"
-                        UPDATE BeanVariety 
-                           SET [Name] = @name, 
-                               Region = @region, 
-                               Notes = @notes
+                        UPDATE Coffee
+                           SET Title = @title, 
+                               
                          WHERE Id = @id";
-                    cmd.Parameters.AddWithValue("@id", variety.Id);
-                    cmd.Parameters.AddWithValue("@name", variety.Name);
-                    cmd.Parameters.AddWithValue("@region", variety.Region);
-                    if (variety.Notes == null)
-                    {
-                        cmd.Parameters.AddWithValue("@notes", DBNull.Value);
-                    }
-                    else
-                    {
-                        cmd.Parameters.AddWithValue("@notes", variety.Notes);
-                    }
+                    cmd.Parameters.AddWithValue("@id", coffee.Id);
+                    cmd.Parameters.AddWithValue("@title", coffee.Title);
 
                     cmd.ExecuteNonQuery();
                 }
@@ -152,7 +154,7 @@ namespace CoffeeShop2.Repositories
                 conn.Open();
                 using (var cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = "DELETE FROM BeanVariety WHERE Id = @id";
+                    cmd.CommandText = "DELETE FROM Coffee WHERE Id = @id";
                     cmd.Parameters.AddWithValue("@id", id);
 
                     cmd.ExecuteNonQuery();
